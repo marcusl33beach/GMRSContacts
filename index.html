@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GMRS Map - Cincinnati/NKY</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html { height: 100%; margin: 0; font-family: sans-serif; overflow: hidden; }
+        
+        /* Compact Header */
+        #header { 
+            position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000;
+            display: flex; align-items: center; gap: 10px; pointer-events: none;
+        }
+        .header-content { 
+            background: rgba(255, 255, 255, 0.9); padding: 5px 15px; 
+            border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            display: flex; align-items: center; gap: 10px; pointer-events: auto;
+        }
+        h2 { margin: 0; font-size: 16px; color: #333; }
+        input#opCallSign { border: 1px solid #ccc; border-radius: 4px; padding: 4px; width: 100px; }
+
+        /* Map occupies full screen */
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        /* Help Button & Modal */
+        .help-btn { 
+            background: #004d40; color: white; border: none; border-radius: 50%; 
+            width: 25px; height: 25px; cursor: pointer; font-weight: bold; pointer-events: auto;
+        }
+        #helpModal {
+            display: none; position: fixed; z-index: 2000; left: 0; top: 0; 
+            width: 100%; height: 100%; background: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background: white; margin: 15% auto; padding: 20px; 
+            width: 300px; border-radius: 8px; position: relative;
+        }
+        .close { float: right; cursor: pointer; font-size: 20px; }
+
+        /* Form styling */
+        .popup-form { display: flex; flex-direction: column; gap: 8px; min-width: 180px; }
+        .popup-form input, .popup-form textarea { width: 100%; box-sizing: border-box; }
+        .save-btn { background: #004d40; color: white; border: none; padding: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div style="position: absolute; top: 10px; right: 10px; z-index: 9999;">
+    <button onclick="logout()" title="Logout" style="background:none; border:none; color:#888; cursor:pointer; font-size:20px;">
+        ⏻
+    </button>
+</div>
+
+<div id="header">
+    <div class="header-content">
+        <h2>GMRS Contact Log</h2>
+        <input type="text" id="opCallSign" placeholder="Call Sign" oninput="saveOpName()">
+        <button class="help-btn" onclick="toggleHelp()">?</button>
+    </div>
+</div>
+
+<div id="helpModal">
+    <div class="modal-content">
+        <span class="close" onclick="toggleHelp()">&times;</span>
+        <h3>How to use</h3>
+        <ul style="padding-left: 20px; font-size: 14px;">
+            <li><b>Add:</b> Right-click on the map location.</li>
+            <li><b>View/Delete:</b> Click a pin to see notes or remove it.</li>
+            <li><b>Save:</b> Data is saved to this browser automatically.</li>
+        </ul>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // 1. Map Setup (Cincinnati / NKY Focus)
+    const map = L.map('map', { zoomControl: false }).setView([39.1031, -84.5120], 11);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OSM'
+    }).addTo(map);
+
+    // 2. Storage Logic
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('opCallSign').value = localStorage.getItem('myCallSign') || "";
+        loadPins();
+    });
+
+    function saveOpName() {
+        localStorage.setItem('myCallSign', document.getElementById('opCallSign').value);
+    }
+
+    function toggleHelp() {
+        const modal = document.getElementById('helpModal');
+        modal.style.display = (modal.style.display === 'block') ? 'none' : 'block';
+    }
+
+    // 3. Map Interaction (Right Click)
+    map.on('contextmenu', function(e) {
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+        
+        const form = `
+            <div class="popup-form">
+                <strong>New Contact</strong>
+                <input type="text" id="c_call" placeholder="Call Sign">
+                <input type="text" id="c_name" placeholder="Name">
+                <textarea id="c_note" placeholder="Notes..."></textarea>
+                <button class="save-btn" onclick="addPin(${lat}, ${lng})">Save</button>
+            </div>
+        `;
+        L.popup().setLatLng(e.latlng).setContent(form).openOn(map);
+    });
+
+    function addPin(lat, lng) {
+        const contact = {
+            id: Date.now(),
+            callsign: document.getElementById('c_call').value || 'Unknown',
+            name: document.getElementById('c_name').value || '',
+            note: document.getElementById('c_note').value || '',
+            lat: lat, lng: lng
+        };
+
+        let contacts = JSON.parse(localStorage.getItem('gmrs_contacts')) || [];
+        contacts.push(contact);
+        localStorage.setItem('gmrs_contacts', JSON.stringify(contacts));
+        
+        renderMarker(contact);
+        map.closePopup();
+    }
+
+    function renderMarker(contact) {
+        L.marker([contact.lat, contact.lng]).addTo(map)
+            .bindPopup(`
+                <b>${contact.callsign}</b><br>${contact.name}<br>
+                <small>${contact.note}</small><br>
+                <button onclick="deletePin(${contact.id})" style="color:red; border:none; background:none; cursor:pointer; padding:5px 0 0 0; font-size:10px;">[Delete]</button>
+            `);
+    }
+
+    function loadPins() {
+        const contacts = JSON.parse(localStorage.getItem('gmrs_contacts')) || [];
+        contacts.forEach(renderMarker);
+    }
+
+    function deletePin(id) {
+        let contacts = JSON.parse(localStorage.getItem('gmrs_contacts')) || [];
+        contacts = contacts.filter(c => c.id !== id);
+        localStorage.setItem('gmrs_contacts', JSON.stringify(contacts));
+        location.reload();
+    }
+</script>
+</body>
+</html>
